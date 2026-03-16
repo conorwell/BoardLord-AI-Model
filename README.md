@@ -9,36 +9,92 @@ A CNN-based difficulty grader for Tension Board 2 problems. Given a problem's ho
 ```
 board_lord.ai/
 ├── docs/
-│   ├── annotation.md       # Hold annotation guide and workflow
-│   ├── api.md              # Tension Board API reference
-│   ├── data.md             # Local data formats and schemas
-│   └── model.md            # Model architecture and design decisions
+│   ├── annotation.md         # Hold annotation guide and workflow
+│   ├── api.md                # Tension Board API reference
+│   ├── data.md               # Local data formats and schemas
+│   └── model.md              # Model architecture and design decisions
 │
-├── sync_files/             # Raw paginated API responses (fetch_001.json, ...)
-├── holes.json              # All 1177 physical hole positions (fetched once)
-├── placements.json         # All 1299 placements, joins position_id → hole (fetched once)
-├── position_map.json       # position_id → (x, y) for TB2 Mirror (layout 10)
-├── position_map_spray.json # position_id → (x, y) for TB2 Spray (layout 11)
-├── mirror_map.json         # position_id → mirrored_position_id for TB2 Mirror
-├── hold_labels.json        # Per-hold annotations: incut, depth, pinchability (in progress)
+├── holes.json                # All physical hole positions (fetched once)
+├── placements.json           # All placements, joins position_id → hole (fetched once)
+├── position_map.json         # position_id → (x, y) for TB2 Mirror (layout 10)
+├── position_map_spray.json   # position_id → (x, y) for TB2 Spray (layout 11)
+├── mirror_map.json           # position_id → mirrored_position_id for TB2 Mirror
+├── sync_state.json           # Last-synced timestamps for incremental updates
 │
-├── TB2_Mirror_Problems/    # ~17K parsed climb JSONs for layout 10
-├── TB2_Spray_Problems/     # ~13.6K parsed climb JSONs for layout 11
+├── TB2_Mirror_Problems/      # Parsed climb JSONs for layout 10 (gitignored, generated)
+├── TB2_Spray_Problems/       # Parsed climb JSONs for layout 11 (gitignored, generated)
 │
-├── fetch_all.py            # Paginates the API and saves raw sync files
-├── parse_climbs.py         # Parses sync files into per-climb JSONs
-├── find_layout.py          # CLI tool: search problems by name, view difficulty
-├── visualize_holes.py      # Renders hole_map.png — board grid verification tool
-├── build_mirror_map.py     # Builds mirror_map.json (position_id → mirrored_position_id)
-├── expand_annotations.py   # Auto-fills mirrored holds in hold_labels.json
+├── fetch_all.py              # Full historical fetch from the Tension Board API
+├── update.py                 # Incremental fetch + parse for ongoing updates
+├── parse_climbs.py           # Parses sync files into per-climb JSONs (full or incremental)
+├── find_layout.py            # CLI tool: search problems by name, view difficulty
+├── visualize_holes.py        # Renders hole_map.png — board grid verification tool
+├── build_mirror_map.py       # Builds mirror_map.json (one-time utility)
 │
-├── TB_util.py              # Data loading, encoding, dataset class
-├── model.py                # CNN architecture and training script
-│
-├── best_model.pt           # Saved weights from best training run
-├── hole_map.png            # Visual verification of TB2 Mirror hold positions
-└── hole_map_spray.png      # Visual verification of TB2 Spray hold positions
+├── TB_util.py                # Data loading, encoding, dataset class
+└── model.py                  # CNN architecture and training script
 ```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+```bash
+pip install torch scikit-learn numpy
+```
+
+### Fetch the dataset
+
+The problem JSON directories (`TB2_Mirror_Problems/`, `TB2_Spray_Problems/`) are not included in the repo — they are generated from the Tension Board API.
+
+**First-time setup:** fetch the full history, then parse both layouts.
+
+```bash
+# 1. Fetch all historical data from the API (writes to sync_files/)
+python fetch_all.py
+
+# 2. Parse into per-problem JSONs
+python parse_climbs.py --layout-id 10 --output-dir TB2_Mirror_Problems
+python parse_climbs.py --layout-id 11 --output-dir TB2_Spray_Problems
+```
+
+`fetch_all.py` contains a session token tied to a specific Tension Board account. To use your own, log into the Tension Board app, capture a `/sync` request (e.g. via Charles Proxy), and update `TOKEN` at the top of the file. See `docs/api.md` for details.
+
+**Ongoing updates:** once the problem directories exist, use `update.py` to pull only new data:
+
+```bash
+python update.py
+```
+
+This reads `sync_state.json` for the last-synced timestamps, fetches only new climbs and stats from the API, and incrementally updates both problem directories. The raw sync files are not required — `sync_state.json` is the source of truth for sync progress.
+
+### Run a K-Folds evaluation
+
+```bash
+# TB2 Mirror (default)
+python model.py --k 10 --epochs 50
+
+# TB2 Spray (separate model, different hold set)
+python model.py --dir TB2_Spray_Problems --pos-map position_map_spray.json --save best_model_spray.pt --k 10 --epochs 50
+```
+
+Training output shows per-epoch loss/MAE for each fold, then a summary and per-grade accuracy breakdown on the best fold's validation set:
+
+```
+K-Folds complete (10 folds)
+Per-fold MAE:     ['0.54', '0.53', ...]
+Mean MAE: 0.55 V-grades  |  Mean correct: 57.3%
+
+Per-grade accuracy (best fold val set):
+  Grade  Correct  Total    Pct
+    ≤V2      233    272    86%
+     V3       57    116    49%
+    ...
+```
+
+The best checkpoint (lowest val MAE across all folds) is saved to `best_model.pt`.
 
 ---
 
@@ -127,13 +183,13 @@ TB2 Mirror (layout 10) and TB2 Spray (layout 11) share the same grid coordinate 
 
 ### Grade scale
 
-The model outputs 11 classes:
+The model outputs 10 classes:
 
 | Class | Label | Notes |
 |-------|-------|-------|
-| 0 | ≤V1 | V0+V1 collapsed — hard to distinguish on a board |
-| 1–9 | V2–V10 | One class per V-grade |
-| 10 | V11+ | V11/V12/V13 collapsed — tiny samples, unclear community consensus |
+| 0 | ≤V2 | V0–V2 collapsed — hard to distinguish on a board, high beta variance |
+| 1–8 | V3–V10 | One class per V-grade |
+| 9 | V11+ | V11/V12/V13 collapsed — tiny samples, unclear community consensus |
 
 `difficulty_average` from the API is a continuous float (1 unit = 1 French grade, 4A=10 through 8C+=33). See `TB_util.py` for the full piecewise V-grade mapping.
 

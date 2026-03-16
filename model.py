@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import random
 from collections import defaultdict
@@ -161,6 +162,67 @@ def eval_epoch(model, loader, loss_fn, device):
 
 
 # ---------------------------------------------------------------------------
+# Full training (production model)
+# ---------------------------------------------------------------------------
+
+def run_full_train(climbs, test_climbs, args, device, loss_fn):
+    """Train on all non-test data, evaluate on the held-out test set.
+
+    Uses CosineAnnealingLR instead of ReduceLROnPlateau since there is no
+    validation set to monitor. This is the mode used to produce the
+    production model weights for deployment.
+    """
+    train_climbs = tb_util.augment_with_flips(climbs)
+    train_weights = tb_util.compute_ascent_weights(train_climbs, cap=2.0)
+    train_dataset = ClimbDataset(train_climbs, train_weights)
+    train_loader  = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+
+    model     = BoardCNN(dropout=0.4).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    for epoch in range(1, args.epochs + 1):
+        train_loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
+        scheduler.step()
+        lr = optimizer.param_groups[0]['lr']
+        print(f"  Epoch {epoch:3d} | train={train_loss:.3f} | lr={lr:.2e}")
+
+    torch.save(model.state_dict(), args.save)
+    print(f"\nModel saved to {args.save}")
+
+    # --- Test set evaluation ---
+    if not test_climbs:
+        print("No test climbs loaded — skipping test evaluation.")
+        return
+
+    test_dataset = ClimbDataset(test_climbs)
+    test_loader  = DataLoader(test_dataset, batch_size=args.batch_size)
+
+    model.eval()
+    grade_correct = defaultdict(int)
+    grade_total   = defaultdict(int)
+
+    with torch.no_grad():
+        for grid, angle_idx, nomatch, vgrade, _ in test_loader:
+            grid, angle_idx, nomatch = grid.to(device), angle_idx.to(device), nomatch.to(device)
+            preds = model(grid, angle_idx, nomatch).cpu().argmax(dim=1)
+            for true_cls, pred_cls in zip(vgrade.tolist(), preds.tolist()):
+                grade_total[true_cls] += 1
+                if pred_cls == true_cls:
+                    grade_correct[true_cls] += 1
+
+    total   = sum(grade_total.values())
+    correct = sum(grade_correct.values())
+    print(f"\nTest set accuracy: {correct}/{total} = {100*correct/total:.1f}%")
+    print(f"  {'Grade':>5}  {'Correct':>7}  {'Total':>5}  {'Pct':>5}")
+    for cls in range(tb_util.NUM_CLASSES):
+        t = grade_total[cls]
+        c = grade_correct[cls]
+        pct = 100 * c / t if t else 0
+        print(f"  {vgrade_to_label(cls):>5}  {c:>7}  {t:>5}  {pct:>4.0f}%")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -216,7 +278,16 @@ def main(args):
     # --- Load data ---
     pos_map = tb_util.load_position_map(args.pos_map)
     material_map = tb_util.load_material_map(args.placements)
-    climbs = tb_util.load_climbs(args.dir, pos_map, material_map)
+
+    exclude_uuids = set()
+    if args.test_uuids and os.path.exists(args.test_uuids):
+        with open(args.test_uuids) as f:
+            test_map = json.load(f)
+        layout_id = str(10 if 'mirror' in args.dir.lower() else 11)
+        exclude_uuids = set(test_map.get(layout_id, []))
+        print(f"Excluding {len(exclude_uuids)} test UUIDs (layout {layout_id})")
+
+    climbs = tb_util.load_climbs(args.dir, pos_map, material_map, exclude_uuids=exclude_uuids)
     print(f"Loaded {len(climbs)} climbs after quality/ascent filters")
 
     # Class weights: inverse frequency raised to CLASS_WEIGHT_POWER.
@@ -240,6 +311,18 @@ def main(args):
     # reduction='none' so we can apply per-sample ascent weights in train_epoch.
     # eval_epoch reduces manually without sample weights (uniform evaluation).
     loss_fn = nn.CrossEntropyLoss(weight=weights, reduction='none')
+
+    # --- Full train (production mode) ---
+    if args.full_train:
+        test_climbs = []
+        if exclude_uuids:
+            test_climbs = tb_util.load_climbs(
+                args.dir, pos_map, material_map,
+                include_uuids=exclude_uuids   # exclude_uuids == the test UUID set
+            )
+            print(f"Loaded {len(test_climbs)} test climb instances for evaluation")
+        run_full_train(climbs, test_climbs, args, device, loss_fn)
+        return
 
     # --- K-Folds ---
     # Each fold uses a different 1/k chunk as the validation set.
@@ -334,5 +417,10 @@ if __name__ == '__main__':
                         help='Path to save best model weights')
     parser.add_argument('--k', type=int, default=10,
                         help='Number of folds for cross-validation (default: 10)')
+    parser.add_argument('--test-uuids', default='test_uuids.json',
+                        help='Path to test UUID file generated by create_test_split.py (default: test_uuids.json)')
+    parser.add_argument('--full-train', action='store_true',
+                        help='Train on all non-test data and evaluate on the test set. '
+                             'Use this to produce the production model after K-Folds tuning is done.')
     args = parser.parse_args()
     main(args)

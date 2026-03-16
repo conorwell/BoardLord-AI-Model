@@ -68,7 +68,7 @@ def encode_climb(holds, pos_map, material_map):
     return grid
 
 
-def load_climbs(directory, pos_map, material_map, min_ascents=MIN_ASCENTS, min_quality=MIN_QUALITY):
+def load_climbs(directory, pos_map, material_map, min_ascents=MIN_ASCENTS, min_quality=MIN_QUALITY, exclude_uuids=None, include_uuids=None):
     """
     Load all climb JSONs from directory.
     Returns list of dicts: {grid, angle (normalized), difficulty, name}
@@ -79,6 +79,12 @@ def load_climbs(directory, pos_map, material_map, min_ascents=MIN_ASCENTS, min_q
             continue
         with open(os.path.join(directory, fname)) as f:
             data = json.load(f)
+
+        uuid = data.get('uuid')
+        if exclude_uuids and uuid in exclude_uuids:
+            continue
+        if include_uuids and uuid not in include_uuids:
+            continue
 
         diff = data.get('difficulty_average')
         ascents = data.get('ascensionist_count') or 0
