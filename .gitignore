@@ -5,9 +5,6 @@ TB2_Spray_Problems/
 # Raw API responses — not needed after incremental parse is set up
 sync_files/
 
-# Model weights — stored in GCP
-*.pt
-
 # Generated visualizations
 hole_map.png
 hole_map_spray.png
