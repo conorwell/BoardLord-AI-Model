@@ -29,5 +29,5 @@ jobs:
       - name: Upload versioned model
         run: |
           SHA=$(git rev-parse --short HEAD)
-          gsutil cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_v${SHA}.pt
-          gsutil cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_latest.pt
+          gcloud storage cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_v${SHA}.pt
+          gcloud storage cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_latest.pt
