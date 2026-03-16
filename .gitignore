@@ -1,0 +1,21 @@
+# Generated training data — rebuilt by parse_climbs.py
+TB2_Mirror_Problems/
+TB2_Spray_Problems/
+
+# Raw API responses — not needed after incremental parse is set up
+sync_files/
+
+# Model weights — stored in GCP
+*.pt
+
+# Generated visualizations
+hole_map.png
+hole_map_spray.png
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
