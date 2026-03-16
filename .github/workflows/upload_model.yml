@@ -1,0 +1,33 @@
+name: Upload Model to GCP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Upload versioned model
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          gsutil cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_v${SHA}.pt
+          gsutil cp best_model.pt gs://${{ secrets.GCP_MODEL_BUCKET }}/board_cnn_latest.pt
