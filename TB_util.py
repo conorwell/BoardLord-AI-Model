@@ -22,9 +22,9 @@ PLASTIC_SET_ID = 13  # set_id=12 is wood, set_id=13 is plastic
 ANGLE_MAX = 65.0
 MIN_ASCENTS = 2
 MIN_QUALITY = 1.5
-MAX_VGRADE    = 11  # V11+ is a single class: V11/V12/V13 collapsed
+MAX_VGRADE    = 12  # V12+ is a single class: V12/V13 collapsed
 LOW_COLLAPSE  = 2   # V0, V1, and V2 collapsed into a single ≤V2 class
-NUM_CLASSES   = MAX_VGRADE - LOW_COLLAPSE + 1  # 11 classes: ≤V1, V2, ..., V10, V11+
+NUM_CLASSES   = MAX_VGRADE - LOW_COLLAPSE + 1  # 11 classes: ≤V2, V3, ..., V11, V12+
 
 # French grade labels; index = round(difficulty_average - 10), so 4A=10, 8C+=33
 FRENCH_GRADES = ['4A','4B','4C','5A','5B','5C', '6A', '6A+', '6B', '6B+', '6C', '6C+',
@@ -211,4 +211,4 @@ def vgrade_to_label(cls):
     if cls == 0:
         return f'≤V{LOW_COLLAPSE}'
     v = cls + LOW_COLLAPSE
-    return 'V11+' if v >= MAX_VGRADE else f'V{v}'
+    return f'V{MAX_VGRADE}+' if v >= MAX_VGRADE else f'V{v}'

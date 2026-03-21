@@ -78,7 +78,7 @@ class BoardCNN(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(256, 64),
             nn.ReLU(),
-            nn.Linear(64, tb_util.NUM_CLASSES),  # ≤V1, V2–V10, V11+ = 11 classes
+            nn.Linear(64, tb_util.NUM_CLASSES),  # ≤V2, V3–V11, V12+ = 11 classes
         )
 
     def forward(self, grid, angle_idx, nomatch):
