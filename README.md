@@ -183,23 +183,19 @@ TB2 Mirror (layout 10) and TB2 Spray (layout 11) share the same grid coordinate 
 
 ### Grade scale
 
-The model outputs 10 classes:
+The model outputs 11 classes:
 
 | Class | Label | Notes |
 |-------|-------|-------|
 | 0 | ≤V2 | V0–V2 collapsed — hard to distinguish on a board, high beta variance |
-| 1–8 | V3–V10 | One class per V-grade |
-| 9 | V11+ | V11/V12/V13 collapsed — tiny samples, unclear community consensus |
+| 1–9 | V3–V11 | One class per V-grade |
+| 10 | V12+ | V12+ collapsed — tiny samples, unclear community consensus |
 
 `difficulty_average` from the API is a continuous float (1 unit = 1 French grade, 4A=10 through 8C+=33). See `TB_util.py` for the full piecewise V-grade mapping.
 
 ---
 
 ## Historical Notes
-
-### Why we rewrote the data pipeline
-
-The original model read from hand-crafted `.tb` files with named hold positions (e.g. `"A5"`). This format had no difficulty scores, a bug where foot holds were always zeroed, and was unscalable. The new pipeline fetches directly from the Tension Board API, giving ~17K graded Mirror problems and ~13K Spray problems with community-verified difficulty scores.
 
 ### Why we use spatial (x, y) coordinates
 
@@ -229,9 +225,9 @@ Problems with more ascents have more reliable community grades. But weighting by
 
 Wood and plastic holds on the Tension Board have fundamentally different properties. The same grid position with a wood jug vs. a plastic crimp produces completely different difficulty. Adding a 5th channel from `set_id` in `placements.json` gave a meaningful accuracy improvement at zero annotation cost.
 
-### Why we collapsed V0/V1 and V11+
+### Why we collapsed V0-V2 and V12+
 
-V0 and V1 on a tension board are genuinely hard to distinguish — problems at that level have many holds and high beta variance, making community grades noisy. V11, V12, and V13 have very few ascents and the climbing community itself lacks consensus on what these grades mean on a tension board. Collapsing both ends reduces label noise and avoids wasting model capacity on indistinguishable classes.
+V0-V2 on a tension board are genuinely hard to distinguish — problems at that level have many holds and high beta variance, making community grades noisy. V12+ have very few ascents and the climbing community itself lacks consensus on what these grades mean on a tension board. Collapsing both ends reduces label noise and avoids wasting model capacity on indistinguishable classes.
 
 ### Why we use a learned angle embedding instead of a scalar
 
@@ -240,7 +236,3 @@ The board angle (0–65° in 5° steps) is discrete, not continuous. A single no
 ### Why the multi-task coarse head was reverted
 
 An auxiliary output head for coarse grade buckets (Easy/Easy-Mid/Mid/Mid-Hard/Hard) with overlapping ranges was added to help the backbone learn grade-range structure. In practice it slightly hurt performance — the class weights and EMD loss were already teaching the model this structure, and the coarse head's gradient signal conflicted near bucket boundaries.
-
-### Why separate models for Mirror and Spray
-
-Early in the project the assumption was that both layouts could share a model since they share a coordinate grid. However, the same grid position on Mirror and Spray corresponds to a different physical hold. Training together creates contradictory signal. Separate models sidestep this entirely.

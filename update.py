@@ -133,7 +133,8 @@ def fetch_new(climbs_ts, climb_stats_ts, next_file_num):
         if climbs:
             latest = max(c['created_at'] for c in climbs)
             if latest > climbs_ts:
-                climbs_ts = latest
+                nudged = datetime.strptime(latest, '%Y-%m-%d %H:%M:%S.%f') + timedelta(microseconds=1)
+                climbs_ts = nudged.strftime('%Y-%m-%d %H:%M:%S.%f')
             elif len(climbs) == 2000:
                 nudged = datetime.strptime(climbs_ts, '%Y-%m-%d %H:%M:%S.%f') + timedelta(days=1)
                 climbs_ts = nudged.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -145,7 +146,8 @@ def fetch_new(climbs_ts, climb_stats_ts, next_file_num):
         if climb_stats:
             latest = max(s['created_at'] for s in climb_stats)
             if latest > climb_stats_ts:
-                climb_stats_ts = latest
+                nudged = datetime.strptime(latest, '%Y-%m-%d %H:%M:%S.%f') + timedelta(microseconds=1)
+                climb_stats_ts = nudged.strftime('%Y-%m-%d %H:%M:%S.%f')
             elif len(climb_stats) == 2000:
                 nudged = datetime.strptime(climb_stats_ts, '%Y-%m-%d %H:%M:%S.%f') + timedelta(days=1)
                 climb_stats_ts = nudged.strftime('%Y-%m-%d %H:%M:%S.%f')

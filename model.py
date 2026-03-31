@@ -168,27 +168,46 @@ def eval_epoch(model, loader, loss_fn, device):
 def run_full_train(climbs, test_climbs, args, device, loss_fn):
     """Train on all non-test data, evaluate on the held-out test set.
 
-    Uses CosineAnnealingLR instead of ReduceLROnPlateau since there is no
-    validation set to monitor. This is the mode used to produce the
-    production model weights for deployment.
+    Holds back 5% of climbs as a scheduler signal set for ReduceLROnPlateau
+    and checkpointing by val MAE — matching the k-folds setup. This set is
+    not used for reporting; only the held-out test set is used for that.
     """
-    train_climbs = tb_util.augment_with_flips(climbs)
+    random.shuffle(climbs)
+    n_sched_val = max(1, int(0.05 * len(climbs)))
+    sched_val_climbs = climbs[:n_sched_val]
+    train_climbs_raw = climbs[n_sched_val:]
+
+    train_climbs = tb_util.augment_with_flips(train_climbs_raw)
     train_weights = tb_util.compute_ascent_weights(train_climbs, cap=2.0)
     train_dataset = ClimbDataset(train_climbs, train_weights)
     train_loader  = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
+    sched_val_dataset = ClimbDataset(sched_val_climbs)
+    sched_val_loader  = DataLoader(sched_val_dataset, batch_size=args.batch_size)
+
+    print(f"  Scheduler signal set: {len(sched_val_climbs)} climbs | Training: {len(train_climbs_raw)} climbs")
+
     model     = BoardCNN(dropout=0.4).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
+
+    best_val_mae = float('inf')
+    best_state = None
 
     for epoch in range(1, args.epochs + 1):
         train_loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
-        scheduler.step()
+        sched_loss, sched_mae, _ = eval_epoch(model, sched_val_loader, loss_fn, device)
+        scheduler.step(sched_loss)
         lr = optimizer.param_groups[0]['lr']
-        print(f"  Epoch {epoch:3d} | train={train_loss:.3f} | lr={lr:.2e}")
+        marker = ' *' if sched_mae < best_val_mae else ''
+        print(f"  Epoch {epoch:3d} | train={train_loss:.3f} | val={sched_loss:.3f} MAE={sched_mae:.2f} | lr={lr:.2e}{marker}")
+        if sched_mae < best_val_mae:
+            best_val_mae = sched_mae
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
-    torch.save(model.state_dict(), args.save)
-    print(f"\nModel saved to {args.save}")
+    model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    torch.save(best_state, args.save)
+    print(f"\nBest val MAE: {best_val_mae:.3f} — model saved to {args.save}")
 
     # --- Test set evaluation ---
     if not test_climbs:
