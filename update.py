@@ -129,7 +129,7 @@ def fetch_new(climbs_ts, climb_stats_ts, next_file_num):
         all_climbs.extend(climbs)
         all_climb_stats.extend(climb_stats)
 
-        climbs_done = False
+        climbs_done = not climbs
         if climbs:
             latest = max(c['created_at'] for c in climbs)
             if latest > climbs_ts:
@@ -142,7 +142,7 @@ def fetch_new(climbs_ts, climb_stats_ts, next_file_num):
             else:
                 climbs_done = True
 
-        stats_done = False
+        stats_done = not climb_stats
         if climb_stats:
             latest = max(s['created_at'] for s in climb_stats)
             if latest > climb_stats_ts:
